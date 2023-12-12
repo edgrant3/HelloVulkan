@@ -1,0 +1,8 @@
+.vs/
+x64/
+*.sln
+
+HelloVulkan/x64/
+HelloVulkan/HelloVulkan.aps
+HelloVulkan/HelloVulkan.vcxproj*
+
