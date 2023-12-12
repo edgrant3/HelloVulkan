@@ -8,7 +8,9 @@ Ultimately, I hope to aggregate knowlege on Vulkan and other modern graphics API
 I am using Visual Studio 2022, and per the tutorial I am also using the latest versions - as of October 2023 - of GLM (linear algebra library) and GLFW (windowing library)
 
 LunarG Vulkan SDK version: 1.3.261.1
+
 GLFW version: 3.3.8
+
 GLM version: 0.9.9 (2020-04-13)
 
 # Log
