@@ -1,5 +1,20 @@
 #version 450
 
+// Vertex Buffer Implementation
+
+// `in` variables (vertex attributes from vertex buffer)
+layout(location = 0) in vec2 inPosition;
+layout(location = 1) in vec3 inColor;
+
+// `out` variables to pass to fragment shader
+layout(location = 0) out vec3 fragColor;
+
+void main() {
+    gl_Position = vec4(inPosition, 0.0, 1.0);
+    fragColor = inColor;
+}
+
+/* // Hardcoded vertices for "Drawing a Triangle" tutorial
 layout(location = 0) out vec3 fragColor;
 
 vec2 positions[3] = vec2[](
@@ -18,3 +33,4 @@ void main() {
     gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
     fragColor = colors[gl_VertexIndex];
 }
+*/
