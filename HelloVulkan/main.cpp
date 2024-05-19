@@ -3,7 +3,7 @@
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES // avoids issues discussed here: https://vulkan-tutorial.com/Uniform_buffers/Descriptor_pool_and_sets#:~:text=in%20recreateSwapChain.-,Alignment%20requirements,-One%20thing%20we%27ve
 #define GLM_FORCE_RADIANS
 
-#define STB_IMAGE_IMPLEMENTATION // includes function bodies when using header-only STB image loader
+#define STB_IMAGE_IMPLEMENTATION // Signals to include function bodies when using header-only STB image loader
 #include <stb_image.h>
 
 #include <GLFW/glfw3.h>    // will automatically load vulkan header bc of prev define
@@ -198,6 +198,7 @@ private:
 
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // Implicitly destroyed when instance destroyed
     VkDevice device;                                  // Logical device handle
+    VkPhysicalDeviceProperties physicalDeviceProperties;
 
     VkQueue graphicsQueue;                            // Graphics Queue handle (implicitly destroyed w/ device)
     VkQueue presentQueue;                             // Presentation Queue handle
@@ -219,21 +220,23 @@ private:
     std::vector<VkCommandBuffer> commandBuffers; // group commands (like drawing, mem transfers) to allow Vulkan to more efficiently process all commands together
     // command buffers are automatically freed when their associated command pool is destroyed, so no explicit cleanup required!
 
-    VkBuffer vertexBuffer;
+    VkBuffer       vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
-    VkBuffer indexBuffer;
+    VkBuffer       indexBuffer;
     VkDeviceMemory indexBufferMemory;
 
-    std::vector<VkBuffer> uniformBuffers; // will need multiple uniform buffers to match no. of frames-in-flight
+    std::vector<VkBuffer>       uniformBuffers; // will need multiple uniform buffers to match no. of frames-in-flight
     std::vector<VkDeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
+    std::vector<void*>          uniformBuffersMapped;
 
-    VkDescriptorPool descriptorPool;
+    VkDescriptorPool             descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
 
     // Texture Stuff
-    VkImage textureImage;
+    VkImage        textureImage;
     VkDeviceMemory textureImageMemory;
+    VkImageView    textureImageView;
+    VkSampler      textureSampler;
 
     // Sync Primitives
     // Semaphores -> swap chain operation synchronization (ordering GPU execution)
@@ -276,6 +279,8 @@ private:
         createFramebuffers();
         createCommandPool();
         createTextureImage();
+        createTextureImageView();
+        createTextureSampler();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -311,6 +316,8 @@ private:
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
+        vkDestroySampler(device, textureSampler, nullptr);
+        vkDestroyImageView(device, textureImageView, nullptr);
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
 
@@ -469,9 +476,8 @@ private:
             throw std::runtime_error("failed to find a suitable GPU!");
         }
 
-        VkPhysicalDeviceProperties deviceProperties;
-        vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
-        std::cout << "SUCCESS: physical device selected: " << deviceProperties.deviceName << std::endl;
+        vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+        std::cout << "SUCCESS: physical device selected: " << physicalDeviceProperties.deviceName << std::endl;
 
     }
 
@@ -497,6 +503,7 @@ private:
 
         // Specify the set of device features we'll use... TODO
         VkPhysicalDeviceFeatures deviceFeatures{};
+        deviceFeatures.samplerAnisotropy = VK_TRUE;
 
         // Now create the device
         VkDeviceCreateInfo createInfo{};
@@ -611,39 +618,60 @@ private:
 
     }
 
+    VkImageView createImageView(VkImage image, VkFormat format) {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        VkImageView imageView;
+        if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create texture image view!");
+        }
+
+        return imageView;
+    }
+
     void createImageViews() {
         swapChainImageViews.resize(swapChainImages.size());
         for (size_t i = 0; i < swapChainImages.size(); ++i) {
-            VkImageViewCreateInfo createInfo{};
-            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            createInfo.image = swapChainImages[i];
+            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
+            //VkImageViewCreateInfo createInfo{};
+            //createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            //createInfo.image = swapChainImages[i];
 
-            // how to interpret image data
-            // viewType can treat imgs as 1D, 2D, 3D textures and cube maps
-            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            createInfo.format = swapChainImageFormat;
+            //// how to interpret image data
+            //// viewType can treat imgs as 1D, 2D, 3D textures and cube maps
+            //createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            //createInfo.format = swapChainImageFormat;
 
-            // swizzling moves components of a vector around (like col.rgba or col.bbg would work in GLSL)
-            // https://en.wikipedia.org/wiki/Swizzling_(computer_graphics)
-            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+            //// swizzling moves components of a vector around (like col.rgba or col.bbg would work in GLSL)
+            //// https://en.wikipedia.org/wiki/Swizzling_(computer_graphics)
+            //createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+            //createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+            //createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+            //createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
-            // subresourceRange field gives img's purpose and which part to access
-            // Our images are color targets without mipmapping levels or multiple layers (as would happen w/ stereographic 3D)
-            createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-            createInfo.subresourceRange.baseMipLevel   = 0;
-            createInfo.subresourceRange.levelCount     = 1;
-            createInfo.subresourceRange.baseArrayLayer = 0;
-            createInfo.subresourceRange.layerCount     = 1;
+            //// subresourceRange field gives img's purpose and which part to access
+            //// Our images are color targets without mipmapping levels or multiple layers (as would happen w/ stereographic 3D)
+            //createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            //createInfo.subresourceRange.baseMipLevel   = 0;
+            //createInfo.subresourceRange.levelCount     = 1;
+            //createInfo.subresourceRange.baseArrayLayer = 0;
+            //createInfo.subresourceRange.layerCount     = 1;
 
-            if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create image views!");
-            }
+            //if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+            //    throw std::runtime_error("failed to create image views!");
+            //}
         }
 
-        std::cout << "SUCCESS: image views created!" << std::endl;
+        std::cout << "SUCCESS: swap chain image views created!" << std::endl;
     }
 
     void createRenderPass() {
@@ -1056,6 +1084,43 @@ private:
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
 
+    }
+
+    void createTextureImageView() {
+        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    }
+
+    void createTextureSampler() {
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+
+        samplerInfo.magFilter = VK_FILTER_LINEAR; // How to interpolate texels that are manified (oversampling)  LINEAR or NEAREST
+        samplerInfo.minFilter = VK_FILTER_LINEAR; // How to interpolate textes that are minified (undersampling) LINEAR or NEAREST
+        
+        // Handle texel sampling off texture edge
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // U = X
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT; // V = Y
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT; // W = Z
+
+        samplerInfo.anisotropyEnable = VK_TRUE;
+        samplerInfo.maxAnisotropy = physicalDeviceProperties.limits.maxSamplerAnisotropy;
+
+        samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+
+        samplerInfo.unnormalizedCoordinates = VK_FALSE; // coord sys to address texels, and we want [0,1) from VK_FALSE
+
+        samplerInfo.compareEnable = VK_FALSE; // compare used in filtering operations, later topic in tutorial!
+        samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+
+        // Will look at mipmapping in later chapter... disable off for now...
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.mipLodBias = 0.0f;
+        samplerInfo.minLod = 0.0f;
+        samplerInfo.maxLod = 0.0f;
+
+        if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create texture sampler!");
+        }
     }
 
     void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, 
@@ -1678,7 +1743,6 @@ private:
         endSingleTimeCommands(commandBuffer);
     }
 
-
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
@@ -1763,8 +1827,12 @@ private:
             swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
         }
 
-        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-            deviceFeatures.geometryShader && indices.isComplete() && extensionsSupported && swapChainAdequate;
+        return    deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU 
+               && deviceFeatures.geometryShader 
+               && indices.isComplete() 
+               && extensionsSupported 
+               && swapChainAdequate 
+               && deviceFeatures.samplerAnisotropy;
     }
 
     std::vector<const char*> getRequiredExtensions() {
@@ -1836,7 +1904,6 @@ private:
 
         return details;
     }
-
 
     bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
 
@@ -1978,6 +2045,7 @@ private:
             bool layerFound = false;
 
             for (const auto& layerProperties : availableLayers) {
+                //std::cout << layerProperties.layerName << std::endl;
                 if (strcmp(layerName, layerProperties.layerName) == 0) {
                     layerFound = true;
                     break;
@@ -2069,3 +2137,4 @@ int main() {
 
     return EXIT_SUCCESS;
 }
+
