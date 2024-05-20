@@ -13,13 +13,27 @@ layout(binding = 0) uniform UniformBufferObject {
 // `in` variables (vertex attributes from vertex buffer)
 layout(location = 0) in vec2 inPosition;
 layout(location = 1) in vec3 inColor;
+layout(location = 2) in vec2 inTexCoord;
 
 // `out` variables to pass to fragment shader
 layout(location = 0) out vec3 fragColor;
+layout(location = 1) out vec2 fragTexCoord;
+
+float sF = 1.75;
+mat4 scale = mat4( sF, 0.0, 0.0, 0.0,
+                   0.0,  sF, 0.0, 0.0,
+                   0.0, 0.0,  sF, 0.0,
+                   0.0, 0.0, 0.0, 1.0);
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 0.0, 1.0);
+    mat4 model = ubo.model;
+    model[0][0] *= 1.5;
+    model[1][1] *= 1.5;
+    model[2][2] *= 1.5;
+
+    gl_Position = ubo.proj * ubo.view * ubo.model * scale * vec4(inPosition, 0.0, 1.0);
     fragColor = inColor;
+    fragTexCoord = inTexCoord;
 }
 
 /* // Hardcoded vertices for "Drawing a Triangle" tutorial
