@@ -19,7 +19,7 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec2 fragTexCoord;
 
-float sF = 1.75;
+float sF = 1.0f;
 mat4 scale = mat4( sF, 0.0, 0.0, 0.0,
                    0.0,  sF, 0.0, 0.0,
                    0.0, 0.0,  sF, 0.0,
@@ -27,9 +27,9 @@ mat4 scale = mat4( sF, 0.0, 0.0, 0.0,
 
 void main() {
     mat4 model = ubo.model;
-    model[0][0] *= 1.5;
-    model[1][1] *= 1.5;
-    model[2][2] *= 1.5;
+//    model[0][0] *= 1.5;
+//    model[1][1] *= 1.5;
+//    model[2][2] *= 1.5;
 
     gl_Position = ubo.proj * ubo.view * ubo.model * scale * vec4(inPosition, 1.0);
     fragColor = inColor;

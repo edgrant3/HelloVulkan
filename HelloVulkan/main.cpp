@@ -7,9 +7,15 @@
 #define STB_IMAGE_IMPLEMENTATION // Signals to include function bodies when using header-only STB image loader
 #include <stb_image.h>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
+
 #include <GLFW/glfw3.h>    // will automatically load vulkan header bc of prev define
 #include <glm/glm.hpp>     // linear algebra library based on common graphics/OpenGL/GLSL functionality 
 #include <glm/gtc/matrix_transform.hpp>
+
+#define GLM_ENABLE_EXPERIMENTAL 
+#include <glm/gtx/hash.hpp> // to use custom vertexes as keys in map
 
 #include <chrono>
 
@@ -28,12 +34,17 @@
 #include <vector>
 #include <array>
 #include <set>
+#include <unordered_map>
 
 
 // screen space H, W
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2;
+
+// Models to import:
+const std::string MODEL_PATH   = "models/viking_room.obj";
+const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 // Want to use validations layers (error checking) provided from the LunarG Vulkan SDK
 const  std::vector<const char*> validationLayers = {
@@ -108,6 +119,10 @@ struct Vertex {
     glm::vec3 color;
     glm::vec2 texCoord;
 
+    bool operator==(const Vertex& other) const {
+        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+    }
+
     static VkVertexInputBindingDescription getBindingDescription() {
         // a vertex binding describes:
         // - rate at which to load data from memory throughout the verts
@@ -155,12 +170,23 @@ struct Vertex {
 
 };
 
+namespace std {
+    template<> struct hash<Vertex> {
+        size_t operator()(Vertex const& vertex) const {
+            return ((hash<glm::vec3>()(vertex.pos) ^
+                (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+                (hash<glm::vec2>()(vertex.texCoord) << 1);
+        }
+    };
+}
+
 struct UniformBufferObject {
     glm::mat4 model;
     glm::mat4 view;
     glm::mat4 proj;
 };
 
+/*
 // Hardcoding same vertices as when they were hardcoded in shader
 // NOTE: these are effectively *interleaved* attributes here
 const std::vector<Vertex> vertices = {
@@ -182,6 +208,7 @@ const std::vector<uint16_t> indices = {
     0, 1, 2, 2, 3, 0,
     4, 5, 6, 6, 7, 4
 };
+*/
 
 
 // *****************************************************************************************************
@@ -233,8 +260,11 @@ private:
     std::vector<VkCommandBuffer> commandBuffers; // group commands (like drawing, mem transfers) to allow Vulkan to more efficiently process all commands together
     // command buffers are automatically freed when their associated command pool is destroyed, so no explicit cleanup required!
 
+    std::vector<Vertex> vertices;
     VkBuffer       vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
+
+    std::vector<uint32_t> indices;
     VkBuffer       indexBuffer;
     VkDeviceMemory indexBufferMemory;
 
@@ -300,6 +330,7 @@ private:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
+        loadModel();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -1126,7 +1157,7 @@ private:
 
     void createTextureImage() {
         int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load("textures/texture.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
 
         if (!pixels) {
@@ -1317,6 +1348,47 @@ private:
         // Stop recording...
         endSingleTimeCommands(commandBuffer);
         
+    }
+
+    void loadModel() {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warn, err;
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+            throw std::runtime_error(warn + err);
+        }
+
+        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+        for (const auto& shape : shapes) {
+            for (const auto& index : shape.mesh.indices) {
+                Vertex vertex{};
+
+                vertex.pos = {
+                    attrib.vertices[3 * index.vertex_index + 0],
+                    attrib.vertices[3 * index.vertex_index + 1],
+                    attrib.vertices[3 * index.vertex_index + 2]
+                };
+
+                vertex.texCoord = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
+                };
+
+                vertex.color = { 1.0f, 1.0f, 1.0f };
+
+                //vertices.push_back(vertex);
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
+                indices.push_back(uniqueVertices[vertex]);
+            }
+        }
+
     }
 
     void createVertexBuffer() {
@@ -1663,6 +1735,9 @@ private:
         
         auto      currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+        // STOP MODEL ROTATION
+        time = 0.f;
     
         UniformBufferObject ubo{};
         ubo.model = glm::rotate(glm::mat4(1.0f), time / 2 * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
@@ -1735,7 +1810,7 @@ private:
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
             0, 1, &descriptorSets[currentFrame], 0, nullptr);
